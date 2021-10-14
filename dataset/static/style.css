@@ -1,0 +1,15 @@
+.states-grid {
+    display: grid;
+    padding: 1ch;
+    gap: 1ch;
+    grid-template-columns: repeat(auto-fill, minmax(16ch, 1fr));
+}
+
+.sr-only {
+    display: none;
+}
+
+.infobox {
+    max-height: 80vh;
+    overflow-y: auto;
+}

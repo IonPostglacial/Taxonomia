@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Taxonomia</title>
+    <link rel="stylesheet" href="static/bootstrap.min.css">
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/bootstrap.bundle.min.js"></script>
+</head>
+
+<body>
+    <div class="container-fluid">
+        <h2 class="row sticky-top shadow-sm navbar navbar-light bg-light justify-content-center">{{ .PickedCharacter.Name.Scientific }}</h2>
+        <div class="row">
+            <main role="main" class="col-sm-8">
+                <form method="POST">
+                    <input type="hidden" name="character-id" name="character-id" value="{{ .PickedCharacter.Id }}">
+                    <div class="states-grid">
+                        {{ range .PickedCharacter.States }}
+                        <div class="card">
+                            <div class="card-header">
+                                <p class="card-text" title={{ .Name.Scientific }}>{{ .Name.Scientific }}</p>
+                            </div>
+                            <div class="card-body">
+                                <div id="carouselExampleIndicators" class="carousel slide" data-ride="carousel">
+                                    <ol class="carousel-indicators">
+                                    {{ range $index, $pic := .Pictures }}
+                                        <li data-target="#carouselExampleIndicators" data-slide-to="{{$index}}" class="active"></li>
+                                    {{ end }}
+                                    </ol>
+                                    <div class="carousel-inner">
+                                        {{ range .Pictures }}
+                                        <div class="carousel-item active">
+                                            <img src="img?src={{ .Source }}" class="card-img-bottom">
+                                        </div>
+                                        {{ else }}
+                                        <img src="static/no-img.png" class="card-img-top">
+                                        {{ end }}
+                                    </div>
+                                    <a class="carousel-control-prev" href="#carouselExampleIndicators" role="button"
+                                        data-slide="prev">
+                                        <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                                        <span class="sr-only">Previous</span>
+                                    </a>
+                                    <a class="carousel-control-next" href="#carouselExampleIndicators" role="button"
+                                        data-slide="next">
+                                        <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                                        <span class="sr-only">Next</span>
+                                    </a>
+                                </div>
+                                &nbsp;
+                            </div>
+                            <div class="card-footer">
+                                <button type="submit" type="button" class="btn btn-outline-primary" name="state-id"
+                                    value="{{.Id}}">
+                                    Select
+                                </button>
+                            </div>
+                        </div>
+                        {{ end }}
+                    </div>
+                    <div class="fixed-bottom d-flex justify-content-center btn-group bg-light">
+                        <button type="submit" class="btn btn-outline-primary" name="pass" value="yes">Pass</button>
+                        <button type="submit" class="btn btn-outline-secondary" name="cancel" value="yes">Cancel</button>
+                        <button type="submit" class="btn btn-danger" name="reset" value="yes">Reset</button>
+                    </div>
+                </form>
+            </main>
+            <div class="col-sm-4">
+                <h2>Selected Properties</h2>
+                <ul>
+                    {{ range .AnsweredChars }}
+                    <li>
+                        {{.Name.Scientific}}
+                        {{ range .States}}
+                        : {{.Name.Scientific}}
+                        {{ end }}
+                    </li>
+                    {{ end }}
+                </ul>
+                {{ if .IdentifiedTaxons }}
+                <h2>Found</h2>
+                {{ end }}
+                <ul class="infobox">
+                    {{ range .IdentifiedTaxons }}
+                    <li>{{.Name.Scientific }}</li>
+                    {{ else }}
+                    <p>No taxons identified</p>
+                    {{ end }}
+                </ul>
+            </div>
+        </div>
+    </div>
+
+</body>
+
+</html>

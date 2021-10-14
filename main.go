@@ -12,6 +12,8 @@ func main() {
 		switch os.Args[1] {
 		case "init":
 			cmd.Initialize()
+		case "check":
+			cmd.Check()
 		case "import":
 			cmd.Import()
 		case "cache":
@@ -21,7 +23,7 @@ func main() {
 		case "lschar":
 			cmd.ListCharacters()
 		case "serve":
-			cmd.Serve(os.Args[1:])
+			cmd.Serve(os.Args[2:])
 		}
 	}
 }

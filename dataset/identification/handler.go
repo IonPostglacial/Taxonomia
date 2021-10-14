@@ -5,10 +5,15 @@ import (
 	"log"
 	"net/http"
 
+	_ "embed"
+
 	"github.com/gorilla/sessions"
 	"nicolas.galipot.net/taxonomia/dataset"
 	"nicolas.galipot.net/taxonomia/dataset/database"
 )
+
+//go:embed identification.html
+var identificationTemplateTxt string
 
 type Handler struct {
 	reg      *database.DatasetRegistry
@@ -26,7 +31,7 @@ type TemplateData struct {
 }
 
 func NewHandler(reg *database.DatasetRegistry, sessionKey string) *Handler {
-	tpl, err := template.ParseFiles("dataset/identification/identification.html")
+	tpl, err := template.New("identification").Parse(identificationTemplateTxt)
 	if err != nil {
 		log.Fatalf("cannot parse template %q: %q", "identification", err.Error())
 	}

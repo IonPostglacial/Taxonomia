@@ -368,46 +368,70 @@ func (reg *DatasetRegistry) GetCharactersFromIds(ids []string, stateIds []string
 	return characters, nil
 }
 
+type picture struct {
+	url     string
+	content []byte
+	err     error
+}
+
+func requestImage(url string, ch chan<- picture) {
+	resp, _ := http.Get(url)
+	resp, err := http.Get(url)
+	if err != nil {
+		ch <- picture{url: url, content: []byte{}, err: err}
+		return
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		ch <- picture{url: url, content: []byte{}, err: err}
+		return
+	}
+	ch <- picture{url: url, content: body, err: nil}
+}
+
 func (reg *DatasetRegistry) CacheImages() error {
 	op := NewDatabaseOperation(reg.db)
 	defer op.Close()
 	selectPics := op.TryPrepare(`SELECT url FROM ItemPictures;`)
 	insertCache := op.TryPrepare(`INSERT OR REPLACE INTO PictureCache (src, data) VALUES (?,?)`)
 	rows := op.TryQuery(selectPics)
+	ch := make(chan picture)
+	count := 0
 	for rows.Next() {
+		count++
 		var url string
 		rows.Scan(&url)
-		resp, err := http.Get(url)
-		if err != nil {
-			//TODO: report images that couldn't be downloaded
+		go requestImage(url, ch)
+	}
+	for i := 0; i < count; i++ {
+		pic := <-ch
+		if pic.err != nil {
 			continue
 		}
-		defer resp.Body.Close()
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return err
-		}
-		op.TryExec(insertCache, url, body)
+		op.TryExec(insertCache, pic.url, pic.content)
 	}
 	return op.Error()
 }
 
 func (reg *DatasetRegistry) GetCachedImage(url string) ([]byte, bool) {
-	stmt, err := reg.db.Prepare(`SELECT data FROM PictureCache WHERE src = ?`)
-	if err != nil {
-		log.Fatalf("Error retrieving cached image: %q", err.Error())
-	}
-	defer stmt.Close()
-	row := stmt.QueryRow(url)
-	if row.Err() != nil {
+	op := NewDatabaseOperation(reg.db)
+	defer op.Close()
+	selectCache := op.TryPrepare(`SELECT data FROM PictureCache WHERE src = ?`)
+	rows := op.TryQuery(selectCache, url)
+	if op.Error() != nil {
+		fmt.Printf("Error retrieving cached image: %q", op.Error().Error())
 		return nil, false
-	} else {
+	}
+	for rows.Next() {
 		var data []byte
-		err = row.Scan(&data)
+		err := rows.Scan(&data)
 		if err != nil {
 			fmt.Printf("Error retrieving cached image: %q", err.Error())
 			return nil, false
 		}
 		return data, true
 	}
+	fmt.Printf("No such image: %q", url)
+	return nil, false
 }

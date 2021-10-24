@@ -281,7 +281,7 @@ func (reg *DatasetRegistry) GetTaxonsHavingStates(states []string) ([]*dataset.T
 	return taxons, nil
 }
 
-func (reg *DatasetRegistry) GetAllCharactersExcept(characterIds []string) (map[string]*dataset.Character, error) {
+func (reg *DatasetRegistry) GetAllCharactersExcept(characterIds []string) ([]*dataset.Character, map[string]*dataset.Character, error) {
 	op := NewDatabaseOperation(reg.db)
 	defer op.Close()
 	selectCharacters := op.TryPrepare(fmt.Sprintf(
@@ -296,9 +296,10 @@ func (reg *DatasetRegistry) GetAllCharactersExcept(characterIds []string) (map[s
 		ORDER BY Character.id ASC, State.id ASC`, inLen(len(characterIds))))
 	rows := op.TryQuery(selectCharacters, strSliceToInterface(characterIds)...)
 	if op.HasFailed() {
-		return nil, op.Error()
+		return nil, nil, op.Error()
 	}
 	defer rows.Close()
+	characters := []*dataset.Character{}
 	charactersById := map[string]*dataset.Character{}
 	charIdsByParentIds := map[string][]string{}
 	var lastCharacter *dataset.Character
@@ -311,6 +312,9 @@ func (reg *DatasetRegistry) GetAllCharactersExcept(characterIds []string) (map[s
 			charIdsByParentIds[parentId] = append(charIdsByParentIds[parentId], charId)
 			lastCharacter = dataset.NewCharacter(&dataset.Hierarchy{Id: charId, Name: dataset.MultilangText{Scientific: charName}})
 			charactersById[charId] = lastCharacter
+			if parentId == "c0" {
+				characters = append(characters, lastCharacter)
+			}
 		}
 		if lastState == nil || lastState.Id != stateId {
 			lastCharacter.States = append(lastCharacter.States, dataset.State{Id: stateId, Name: dataset.MultilangText{Scientific: stateName}})
@@ -329,7 +333,7 @@ func (reg *DatasetRegistry) GetAllCharactersExcept(characterIds []string) (map[s
 			}
 		}
 	}
-	return charactersById, nil
+	return characters, charactersById, nil
 }
 
 func (reg *DatasetRegistry) GetCharactersFromIds(ids []string, stateIds []string) ([]*dataset.Character, error) {

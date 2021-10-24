@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+
+{{define "characters"}}
+
+<!DOCTYPE html>
+<html lang="en">
+
+{{ template "header" }}
+
+<body>
+    <div class="container-fluid">
+        <h2 class="row sticky-top shadow-sm navbar navbar-light bg-light justify-content-center">Select a character</h2>
+        <div class="row">
+            <main role="main" class="col-sm-8">
+                <form method="POST">
+                    <div class="states-grid">
+                        {{ range .UnansweredChars }}
+                        <div class="card">
+                            <div class="card-header">
+                                <p class="card-text" title={{ .Name.Scientific }}>{{ .Name.Scientific }}</p>
+                            </div>
+                            <div class="card-body">
+                                <div id="carouselExampleIndicators" class="carousel slide" data-ride="carousel">
+                                    <ol class="carousel-indicators">
+                                    {{ range $index, $pic := .Pictures }}
+                                        <li data-target="#carouselExampleIndicators" data-slide-to="{{$index}}" class="active"></li>
+                                    {{ end }}
+                                    </ol>
+                                    <div class="carousel-inner">
+                                        {{ range .Pictures }}
+                                        <div class="carousel-item active">
+                                            <img src="img?src={{ .Source }}" class="card-img-bottom">
+                                        </div>
+                                        {{ else }}
+                                        <img src="static/no-img.png" class="card-img-top">
+                                        {{ end }}
+                                    </div>
+                                    <a class="carousel-control-prev" href="#carouselExampleIndicators" role="button"
+                                        data-slide="prev">
+                                        <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                                        <span class="sr-only">Previous</span>
+                                    </a>
+                                    <a class="carousel-control-next" href="#carouselExampleIndicators" role="button"
+                                        data-slide="next">
+                                        <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                                        <span class="sr-only">Next</span>
+                                    </a>
+                                </div>
+                                &nbsp;
+                            </div>
+                            <div class="card-footer btn-group">
+                                <a class="btn btn-outline-primary" href="?char={{.Id}}">Select</a>
+                                {{if .Children }}
+                                <a class="btn btn-outline-secondary" href="?in={{.Id}}">Open</a>
+                                {{end}}
+                            </div>
+                        </div>
+                        {{ end }}
+                    </div>
+                    <div class="d-flex justify-content-center btn-group bg-light">
+                        <button type="submit" class="btn btn-warning" name="action" value="cancel">Cancel</button>
+                        <button type="submit" class="btn btn-danger" name="action" value="reset">Reset</button>
+                    </div>
+                </form>
+            </main>
+            <div class="col-sm-4">
+                <h2>Selected Properties</h2>
+                <ul>
+                    {{ range .AnsweredChars }}
+                    <li>
+                        {{.Name.Scientific}}
+                        {{ range .States}}
+                        : {{.Name.Scientific}}
+                        {{ end }}
+                    </li>
+                    {{ end }}
+                </ul>
+                {{ if .IdentifiedTaxons }}
+                <h2>Found</h2>
+                {{ end }}
+                <ul class="infobox">
+                    {{ range .IdentifiedTaxons }}
+                    <li>{{.Name.Scientific }}</li>
+                    {{ else }}
+                    <p>No taxons identified</p>
+                    {{ end }}
+                </ul>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+
+{{end}}

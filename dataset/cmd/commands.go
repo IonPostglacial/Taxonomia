@@ -85,19 +85,19 @@ func displayCharacter(charactersByids map[string]*dataset.Character, ch *dataset
 func ListCharacters() {
 	db := getDatabaseOrDie("db.sq3")
 	reg := database.NewRegistry(db)
-	characters, err := reg.GetAllCharactersExcept([]string{})
+	characters, charByIds, err := reg.GetAllCharactersExcept([]string{})
 	if err != nil {
 		log.Fatalf("Cannot list characters: %q.\n", err.Error())
 	}
 	for _, ch := range characters {
-		displayCharacter(characters, ch, " |")
+		displayCharacter(charByIds, ch, " |")
 	}
 }
 
 func Identify() {
 	db := getDatabaseOrDie("db.sq3")
 	reg := database.NewRegistry(db)
-	characters, err := reg.GetAllCharactersExcept([]string{})
+	characters, _, err := reg.GetAllCharactersExcept([]string{})
 	if err != nil {
 		log.Fatalf("Cannot retrieve characters: %q.\n", err.Error())
 	}
@@ -187,8 +187,5 @@ func Check() {
 			}
 		}
 		itemIds[id] = true
-	}
-	for id := range itemIds {
-		fmt.Println(id)
 	}
 }

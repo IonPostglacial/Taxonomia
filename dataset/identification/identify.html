@@ -1,23 +1,16 @@
+{{define "identify"}}
 <!DOCTYPE html>
 <html lang="en">
 
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Taxonomia</title>
-    <link rel="stylesheet" href="static/bootstrap.min.css">
-    <link rel="stylesheet" href="static/style.css">
-    <script src="static/bootstrap.bundle.min.js"></script>
-</head>
+{{ template "header" }}
 
 <body>
     <div class="container-fluid">
         <h2 class="row sticky-top shadow-sm navbar navbar-light bg-light justify-content-center">{{ .PickedCharacter.Name.Scientific }}</h2>
         <div class="row">
             <main role="main" class="col-sm-8">
-                <form method="POST">
-                    <input type="hidden" name="character-id" name="character-id" value="{{ .PickedCharacter.Id }}">
+                <form method="POST" action="/identify">
+                    <input type="hidden" name="selected-character" value="{{ .PickedCharacter.Id }}">
                     <div class="states-grid">
                         {{ range .PickedCharacter.States }}
                         <div class="card">
@@ -54,7 +47,7 @@
                                 &nbsp;
                             </div>
                             <div class="card-footer">
-                                <button type="submit" type="button" class="btn btn-outline-primary" name="state-id"
+                                <button type="submit" type="button" class="btn btn-outline-primary" name="selected-state"
                                     value="{{.Id}}">
                                     Select
                                 </button>
@@ -63,9 +56,10 @@
                         {{ end }}
                     </div>
                     <div class="fixed-bottom d-flex justify-content-center btn-group bg-light">
-                        <button type="submit" class="btn btn-outline-primary" name="pass" value="yes">Pass</button>
-                        <button type="submit" class="btn btn-outline-secondary" name="cancel" value="yes">Cancel</button>
-                        <button type="submit" class="btn btn-danger" name="reset" value="yes">Reset</button>
+                        <a href="/identify" class="btn btn-outline-primary">Character List</a>
+                        <button type="submit" class="btn btn-outline-secondary" name="action" value="pass">Pass</button>
+                        <button type="submit" class="btn btn-warning" name="action" value="cancel">Cancel</button>
+                        <button type="submit" class="btn btn-danger" name="action" value="reset">Reset</button>
                     </div>
                 </form>
             </main>
@@ -94,7 +88,7 @@
             </div>
         </div>
     </div>
-
 </body>
 
 </html>
+{{end}}

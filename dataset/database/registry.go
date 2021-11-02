@@ -27,7 +27,7 @@ func CreateTables(db *sql.DB) (err error) {
 		);`,
 		`CREATE TABLE ItemPictures (
 			id INT NOT NULL,
-			item INT NOT NULL,
+			item TEXT NOT NULL,
 			url VARCHAR(512) NOT NULL,
 			label VARCHAR(512) NOT NULL,
 			PRIMARY KEY (id),
@@ -148,6 +148,10 @@ type insertCharacterPreparedStatements struct {
 func (reg *DatasetRegistry) recursivelyInsertCharacters(ds *dataset.Dataset, op *DatabaseOperation, stmts insertCharacterPreparedStatements, character *dataset.Character, parentHierarchy *dataset.Hierarchy) error {
 	reg.insertItem(op, stmts.insertItem, stmts.insertHierarchy, character.Hierarchy, parentHierarchy)
 	op.TryExec(stmts.insertCharacter, character.Id)
+	for _, pic := range character.Pictures {
+		reg.picCount++
+		op.TryExec(stmts.insertItemPicture, reg.picCount, character.Id, pic.Source, pic.Legend)
+	}
 	for _, state := range character.States {
 		op.TryExec(stmts.insertItem, state.Id, state.Name.Scientific, state.Description)
 		op.TryExec(stmts.insertState, state.Id, character.Id)
@@ -189,6 +193,7 @@ func (reg *DatasetRegistry) insertCharacters(ds *dataset.Dataset, character *dat
 
 type insertTaxonPreparedStatements struct {
 	insertItem        *sql.Stmt
+	insertItemPicture *sql.Stmt
 	insertHierarchy   *sql.Stmt
 	insertTaxon       *sql.Stmt
 	insertTaxonStates *sql.Stmt
@@ -197,6 +202,10 @@ type insertTaxonPreparedStatements struct {
 func (reg *DatasetRegistry) recursivelyInsertTaxons(ds *dataset.Dataset, op *DatabaseOperation, stmts insertTaxonPreparedStatements, taxon *dataset.Taxon, parentHierarchy *dataset.Hierarchy) error {
 	reg.insertItem(op, stmts.insertItem, stmts.insertHierarchy, taxon.Hierarchy, parentHierarchy)
 	op.TryExec(stmts.insertTaxon, taxon.Id, taxon.Author)
+	for _, pic := range taxon.Pictures {
+		reg.picCount++
+		op.TryExec(stmts.insertItemPicture, reg.picCount, taxon.Id, pic.Source, pic.Legend)
+	}
 	for _, state := range taxon.States {
 		op.TryExec(stmts.insertTaxonStates, taxon.Id, state.Id)
 	}
@@ -219,6 +228,7 @@ func (reg *DatasetRegistry) insertTaxons(ds *dataset.Dataset, taxon *dataset.Tax
 	defer op.Close()
 	stmts := insertTaxonPreparedStatements{
 		insertItem:        op.TryPrepare(QUERY_INSERT_ITEM),
+		insertItemPicture: op.TryPrepare(`INSERT INTO ItemPictures (id,item,url,label) VALUES (?,?,?,?);`),
 		insertHierarchy:   op.TryPrepare(QUERY_INSERT_HIERARCHIES),
 		insertTaxon:       op.TryPrepare(`INSERT INTO Taxons (item, author) VALUES (?,?);`),
 		insertTaxonStates: op.TryPrepare(`INSERT INTO TaxonStates (taxon, state) VALUES (?,?);`),
@@ -285,12 +295,13 @@ func (reg *DatasetRegistry) GetAllCharactersExcept(characterIds []string) ([]*da
 	op := NewDatabaseOperation(reg.db)
 	defer op.Close()
 	selectCharacters := op.TryPrepare(fmt.Sprintf(
-		`SELECT Character.id, Character.name, State.id, State.name, Hierarchies.ancestor, StatePicture.id, StatePicture.url
+		`SELECT Character.id, Character.name, CharPic.id, CharPic.url, State.id, State.name, Hierarchies.ancestor, StatePic.id, StatePic.url
 		FROM Items Character
 		INNER JOIN Characters ON Characters.item = Character.id
+		LEFT JOIN ItemPictures CharPic ON CharPic.item = Character.id
 		INNER JOIN States ON States.character = Character.id
 		INNER JOIN Items State ON State.id = States.item
-		LEFT JOIN ItemPictures StatePicture ON StatePicture.item = State.id
+		LEFT JOIN ItemPictures StatePic ON StatePic.item = State.id
 		LEFT JOIN Hierarchies ON Hierarchies.descendant = Character.id
 		WHERE Hierarchies.length = 1 AND NOT Character.id IN (%s)
 		ORDER BY Character.id ASC, State.id ASC`, inLen(len(characterIds))))
@@ -304,10 +315,17 @@ func (reg *DatasetRegistry) GetAllCharactersExcept(characterIds []string) ([]*da
 	charIdsByParentIds := map[string][]string{}
 	var lastCharacter *dataset.Character
 	var lastState *dataset.State
+	var lastCharPic int64
+	var lastStatePic string
 
 	for rows.Next() {
-		var charId, charName, stateId, stateName, parentId, picId, picUrl string
-		rows.Scan(&charId, &charName, &stateId, &stateName, &parentId, &picId, &picUrl)
+		var charPicId sql.NullInt64
+		var charPicUrl, statePicId, statePicUrl sql.NullString
+		var charId, charName, stateId, stateName, parentId string
+		err := rows.Scan(&charId, &charName, &charPicId, &charPicUrl, &stateId, &stateName, &parentId, &statePicId, &statePicUrl)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
 		if lastCharacter == nil || lastCharacter.Id != charId {
 			charIdsByParentIds[parentId] = append(charIdsByParentIds[parentId], charId)
 			lastCharacter = dataset.NewCharacter(&dataset.Hierarchy{Id: charId, Name: dataset.MultilangText{Scientific: charName}})
@@ -316,12 +334,17 @@ func (reg *DatasetRegistry) GetAllCharactersExcept(characterIds []string) ([]*da
 				characters = append(characters, lastCharacter)
 			}
 		}
+		if charPicId.Valid && (lastCharPic == 0 || lastCharPic != charPicId.Int64) {
+			lastCharPic = charPicId.Int64
+			lastCharacter.Pictures = append(lastCharacter.Pictures, dataset.Picture{Id: fmt.Sprint(lastCharPic), Source: charPicUrl.String})
+		}
 		if lastState == nil || lastState.Id != stateId {
 			lastCharacter.States = append(lastCharacter.States, dataset.State{Id: stateId, Name: dataset.MultilangText{Scientific: stateName}})
 			lastState = &lastCharacter.States[len(lastCharacter.States)-1]
 		}
-		if len(picId) > 0 {
-			lastState.Pictures = append(lastState.Pictures, dataset.Picture{Id: picId, Source: picUrl})
+		if statePicId.Valid && (len(lastStatePic) == 0 || lastStatePic != statePicId.String) {
+			lastStatePic = statePicId.String
+			lastState.Pictures = append(lastState.Pictures, dataset.Picture{Id: lastStatePic, Source: statePicUrl.String})
 		}
 	}
 	for parentId, childrenIds := range charIdsByParentIds {

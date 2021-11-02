@@ -49,6 +49,7 @@ func decodeHierarchy(encoded *EncodedItem) *Hierarchy {
 		Id:          encoded.Id,
 		Name:        name,
 		Description: encoded.Detail,
+		Pictures:    decodePictures(encoded.Photos),
 	}
 }
 

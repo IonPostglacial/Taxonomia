@@ -12,10 +12,11 @@ import (
 )
 
 func CreateTables(db *sql.DB) (err error) {
-	sqlTables := []string{"Items", "PictureCache", "ItemPictures", "Languages", "Hierarchies", "Characters", "States", "Taxons", "TaxonStates", "CharacterRequiredStates"}
+	sqlTables := []string{"Items", "PictureCache", "ItemPictures", "Languages", "ItemNames", "Hierarchies", "Characters", "States", "Taxons", "TaxonStates", "CharacterRequiredStates"}
 	sqlCreateTables := []string{
 		`CREATE TABLE Items (
 			id TEXT NOT NULL,
+			ord INTEGER NOT NULL,
 			name VARCHAR(512) NOT NULL,
 			description TEXT NOT NULL DEFAULT '',
 			PRIMARY KEY (id)
@@ -37,6 +38,14 @@ func CreateTables(db *sql.DB) (err error) {
 			code VARCHAR(2) NOT NULL,
 			label VARCHAR(512) NOT NULL,
 			PRIMARY KEY (code)
+		);`,
+		`CREATE TABLE ItemNames (
+			item TEXT NOT NULL,
+			lang VARCHAR(2) NOT NULL,
+			text VARCHAR(512) NOT NULL,
+			PRIMARY KEY(item, lang),
+			FOREIGN KEY(item) REFERENCES Items(id),
+			FOREIGN KEY(lang) REFERENCES Languages(id)
 		);`,
 		`CREATE TABLE Hierarchies (
 			ancestor TEXT NOT NULL,
@@ -109,8 +118,10 @@ func InsertStandardContent(db *sql.DB) error {
 }
 
 type DatasetRegistry struct {
-	db       *sql.DB
-	picCount int
+	db              *sql.DB
+	picCount        int
+	taxonsCount     int
+	charactersCount int
 }
 
 func NewRegistry(db *sql.DB) *DatasetRegistry {
@@ -118,7 +129,8 @@ func NewRegistry(db *sql.DB) *DatasetRegistry {
 }
 
 const (
-	QUERY_INSERT_ITEM        = `INSERT INTO Items (id, name, description) VALUES (?,?,?);`
+	QUERY_INSERT_ITEM        = `INSERT INTO Items (id, ord, name, description) VALUES (?,?,?,?);`
+	QUERY_INSERT_NAMES       = `INSERT INTO ItemNames (item, lang, text) VALUES (?,?,?);`
 	QUERY_INSERT_HIERARCHIES = `INSERT INTO Hierarchies (ancestor, descendant, length)
 		SELECT ancestor, ?, length + 1 FROM Hierarchies
 		WHERE descendant = ?
@@ -126,18 +138,23 @@ const (
 		SELECT ?, ?, 0;`
 )
 
-func (reg *DatasetRegistry) insertItem(op *DatabaseOperation, insertItem *sql.Stmt, insertHierarchy *sql.Stmt, hierarchy *dataset.Hierarchy, parent *dataset.Hierarchy) error {
+func (reg *DatasetRegistry) insertHierarchicalItem(op *DatabaseOperation, insertItem *sql.Stmt, insertNames *sql.Stmt, insertHierarchy *sql.Stmt,
+	order int, hierarchy *dataset.Hierarchy, parent *dataset.Hierarchy) error {
 	var parentId string
 	if parent != nil {
 		parentId = parent.Id
 	}
-	op.TryExec(insertItem, hierarchy.Id, hierarchy.Name.Scientific, hierarchy.Description)
+	op.TryExec(insertItem, hierarchy.Id, order, hierarchy.Name.Scientific, hierarchy.Description)
+	for lang, text := range hierarchy.Name.NamesByLangRef {
+		op.TryExec(insertNames, hierarchy.Id, lang, text)
+	}
 	op.TryExec(insertHierarchy, hierarchy.Id, parentId, hierarchy.Id, hierarchy.Id)
 	return op.Error()
 }
 
 type insertCharacterPreparedStatements struct {
 	insertItem           *sql.Stmt
+	insertItemNames      *sql.Stmt
 	insertItemPicture    *sql.Stmt
 	insertHierarchy      *sql.Stmt
 	insertCharacter      *sql.Stmt
@@ -146,14 +163,18 @@ type insertCharacterPreparedStatements struct {
 }
 
 func (reg *DatasetRegistry) recursivelyInsertCharacters(ds *dataset.Dataset, op *DatabaseOperation, stmts insertCharacterPreparedStatements, character *dataset.Character, parentHierarchy *dataset.Hierarchy) error {
-	reg.insertItem(op, stmts.insertItem, stmts.insertHierarchy, character.Hierarchy, parentHierarchy)
+	reg.insertHierarchicalItem(op, stmts.insertItem, stmts.insertItemNames, stmts.insertHierarchy, reg.charactersCount, character.Hierarchy, parentHierarchy)
+	reg.charactersCount++
 	op.TryExec(stmts.insertCharacter, character.Id)
 	for _, pic := range character.Pictures {
 		reg.picCount++
 		op.TryExec(stmts.insertItemPicture, reg.picCount, character.Id, pic.Source, pic.Legend)
 	}
-	for _, state := range character.States {
-		op.TryExec(stmts.insertItem, state.Id, state.Name.Scientific, state.Description)
+	for i, state := range character.States {
+		op.TryExec(stmts.insertItem, state.Id, i, state.Name.Scientific, state.Description)
+		for lang, text := range state.Name.NamesByLangRef {
+			op.TryExec(stmts.insertItemNames, state.Id, lang, text)
+		}
 		op.TryExec(stmts.insertState, state.Id, character.Id)
 		for _, pic := range state.Pictures {
 			reg.picCount++
@@ -182,6 +203,7 @@ func (reg *DatasetRegistry) insertCharacters(ds *dataset.Dataset, character *dat
 	defer op.Close()
 	stmts := insertCharacterPreparedStatements{
 		insertItem:           op.TryPrepare(QUERY_INSERT_ITEM),
+		insertItemNames:      op.TryPrepare(QUERY_INSERT_NAMES),
 		insertItemPicture:    op.TryPrepare(`INSERT INTO ItemPictures (id,item,url,label) VALUES (?,?,?,?);`),
 		insertHierarchy:      op.TryPrepare(QUERY_INSERT_HIERARCHIES),
 		insertCharacter:      op.TryPrepare(`INSERT INTO Characters (item) VALUES (?);`),
@@ -193,6 +215,7 @@ func (reg *DatasetRegistry) insertCharacters(ds *dataset.Dataset, character *dat
 
 type insertTaxonPreparedStatements struct {
 	insertItem        *sql.Stmt
+	insertItemNames   *sql.Stmt
 	insertItemPicture *sql.Stmt
 	insertHierarchy   *sql.Stmt
 	insertTaxon       *sql.Stmt
@@ -200,7 +223,8 @@ type insertTaxonPreparedStatements struct {
 }
 
 func (reg *DatasetRegistry) recursivelyInsertTaxons(ds *dataset.Dataset, op *DatabaseOperation, stmts insertTaxonPreparedStatements, taxon *dataset.Taxon, parentHierarchy *dataset.Hierarchy) error {
-	reg.insertItem(op, stmts.insertItem, stmts.insertHierarchy, taxon.Hierarchy, parentHierarchy)
+	reg.insertHierarchicalItem(op, stmts.insertItem, stmts.insertItemNames, stmts.insertHierarchy, reg.taxonsCount, taxon.Hierarchy, parentHierarchy)
+	reg.taxonsCount++
 	op.TryExec(stmts.insertTaxon, taxon.Id, taxon.Author)
 	for _, pic := range taxon.Pictures {
 		reg.picCount++
@@ -228,6 +252,7 @@ func (reg *DatasetRegistry) insertTaxons(ds *dataset.Dataset, taxon *dataset.Tax
 	defer op.Close()
 	stmts := insertTaxonPreparedStatements{
 		insertItem:        op.TryPrepare(QUERY_INSERT_ITEM),
+		insertItemNames:   op.TryPrepare(QUERY_INSERT_NAMES),
 		insertItemPicture: op.TryPrepare(`INSERT INTO ItemPictures (id,item,url,label) VALUES (?,?,?,?);`),
 		insertHierarchy:   op.TryPrepare(QUERY_INSERT_HIERARCHIES),
 		insertTaxon:       op.TryPrepare(`INSERT INTO Taxons (item, author) VALUES (?,?);`),
@@ -295,16 +320,19 @@ func (reg *DatasetRegistry) GetAllCharactersExcept(characterIds []string) ([]*da
 	op := NewDatabaseOperation(reg.db)
 	defer op.Close()
 	selectCharacters := op.TryPrepare(fmt.Sprintf(
-		`SELECT Character.id, Character.name, CharPic.id, CharPic.url, State.id, State.name, Hierarchies.ancestor, StatePic.id, StatePic.url
+		`SELECT Character.id, Character.name, CharName.lang, CharName.text, CharPic.id, CharPic.url, 
+		State.id, State.name, StateName.lang, StateName.text, Hierarchies.ancestor, StatePic.id, StatePic.url
 		FROM Items Character
 		INNER JOIN Characters ON Characters.item = Character.id
+		LEFT JOIN ItemNames CharName ON CharName.item = Character.id
 		LEFT JOIN ItemPictures CharPic ON CharPic.item = Character.id
 		INNER JOIN States ON States.character = Character.id
 		INNER JOIN Items State ON State.id = States.item
+		LEFT JOIN ItemNames StateName ON StateName.item = State.id
 		LEFT JOIN ItemPictures StatePic ON StatePic.item = State.id
 		LEFT JOIN Hierarchies ON Hierarchies.descendant = Character.id
 		WHERE Hierarchies.length = 1 AND NOT Character.id IN (%s)
-		ORDER BY Character.id ASC, State.id ASC`, inLen(len(characterIds))))
+		ORDER BY Character.ord ASC, State.ord ASC`, inLen(len(characterIds))))
 	rows := op.TryQuery(selectCharacters, strSliceToInterface(characterIds)...)
 	if op.HasFailed() {
 		return nil, nil, op.Error()
@@ -316,31 +344,54 @@ func (reg *DatasetRegistry) GetAllCharactersExcept(characterIds []string) ([]*da
 	var lastCharacter *dataset.Character
 	var lastState *dataset.State
 	var lastCharPic int64
+	var lastCharLang string
 	var lastStatePic string
+	var lastStateLang string
 
 	for rows.Next() {
 		var charPicId sql.NullInt64
-		var charPicUrl, statePicId, statePicUrl sql.NullString
+		var charLang, charLangName, charPicUrl, stateLang, stateLangName, statePicId, statePicUrl sql.NullString
 		var charId, charName, stateId, stateName, parentId string
-		err := rows.Scan(&charId, &charName, &charPicId, &charPicUrl, &stateId, &stateName, &parentId, &statePicId, &statePicUrl)
+		err := rows.Scan(&charId, &charName, &charLang, &charLangName, &charPicId, &charPicUrl,
+			&stateId, &stateName, &stateLang, &stateLangName, &parentId, &statePicId, &statePicUrl)
 		if err != nil {
 			fmt.Println(err.Error())
 		}
 		if lastCharacter == nil || lastCharacter.Id != charId {
 			charIdsByParentIds[parentId] = append(charIdsByParentIds[parentId], charId)
-			lastCharacter = dataset.NewCharacter(&dataset.Hierarchy{Id: charId, Name: dataset.MultilangText{Scientific: charName}})
+			lastCharacter = dataset.NewCharacter(&dataset.Hierarchy{
+				Id: charId,
+				Name: dataset.MultilangText{
+					Scientific:     charName,
+					NamesByLangRef: make(map[string]string),
+				},
+			})
 			charactersById[charId] = lastCharacter
 			if parentId == "c0" {
 				characters = append(characters, lastCharacter)
 			}
+		}
+		if charLang.Valid && charLang.String != lastCharLang {
+			lastCharLang = charLang.String
+			lastCharacter.Name.NamesByLangRef[lastCharLang] = charLangName.String
 		}
 		if charPicId.Valid && (lastCharPic == 0 || lastCharPic != charPicId.Int64) {
 			lastCharPic = charPicId.Int64
 			lastCharacter.Pictures = append(lastCharacter.Pictures, dataset.Picture{Id: fmt.Sprint(lastCharPic), Source: charPicUrl.String})
 		}
 		if lastState == nil || lastState.Id != stateId {
-			lastCharacter.States = append(lastCharacter.States, dataset.State{Id: stateId, Name: dataset.MultilangText{Scientific: stateName}})
+			lastCharacter.States = append(lastCharacter.States, dataset.State{
+				Id: stateId,
+				Name: dataset.MultilangText{
+					Scientific:     stateName,
+					NamesByLangRef: make(map[string]string),
+				},
+			})
 			lastState = &lastCharacter.States[len(lastCharacter.States)-1]
+		}
+		if stateLang.Valid {
+			lastStateLang = stateLang.String
+			lastState.Name.NamesByLangRef[lastStateLang] = stateLangName.String
 		}
 		if statePicId.Valid && (len(lastStatePic) == 0 || lastStatePic != statePicId.String) {
 			lastStatePic = statePicId.String

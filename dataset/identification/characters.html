@@ -19,6 +19,9 @@
                         <div class="card">
                             <div class="card-header">
                                 <p class="card-text" title={{ .Name.Scientific }}>{{ .Name.Scientific }}</p>
+                                {{ range $lang, $name := .Name.NamesByLangRef }}
+                                <p class="card-text" title={{ $lang }}>{{ $name }}</p>
+                                {{ end }}
                             </div>
                             <div class="card-body">
                                 <div id="carouselExampleIndicators" class="carousel slide" data-ride="carousel">
